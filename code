@@ -1,0 +1,819 @@
+//**************************libraries****************************//
+#include <Wire.h>
+#include <hd44780.h>
+#include <hd44780ioClass/hd44780_I2Cexp.h>
+#include <RTClib.h>
+#include <SD.h>
+#include <SPI.h>
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+#include <ESP8266WiFiMulti.h>
+
+//*******************Hardware being used*************************//
+RTC_DS3231 rtc;
+DateTime now;
+ESP8266WiFiMulti wifi_multi;
+File file1;
+hd44780_I2Cexp lcd;
+WiFiClient espClient;
+PubSubClient client(espClient);
+File file2, file3, file4, file5, file6, peringatan;
+File Jam1;
+File Jam2;
+File Jam3;
+File Jam4;
+File Jam5;
+File Menit1;
+File Menit2;
+File Menit3;
+File Menit4;
+File Menit5;
+File Detik1;
+File Detik2;
+File Detik3;
+File Detik4;
+File Detik5;
+
+//*******************Declarating Variables*************************//
+int chipSelect = 2;
+unsigned long lastMsg = 0;
+#define MSG_BUFFER_SIZE  (50)
+char msg[MSG_BUFFER_SIZE];
+unsigned long value = 0, value1 = 0, value2 = 0, value3 = 0, value4 = 0, value5 = 0, value6 = 0;
+int menu = 0;
+int status_SDCard = 0;
+const int debounce = 35;
+byte hitung;
+unsigned long waktu_semua, waktu_semua1, waktu_semua2, waktu_semua3, waktu_semua4, waktu_semua5;
+unsigned long int nilai_detik1, nilai_detik2, nilai_detik3, nilai_detik4, nilai_detik5;
+unsigned long int nilai_menit1, nilai_menit2, nilai_menit3, nilai_menit4, nilai_menit5;
+unsigned long int nilai_jam1, nilai_jam2, nilai_jam3, nilai_jam4, nilai_jam5;
+unsigned long median = 0 , median1, median2, median3;
+unsigned long interval_detik = 1000, detik_sebelumnya = 0;
+unsigned long apa = 0;
+//#define EEADDR 166
+const unsigned long eventInterval = 1000;
+const unsigned long eventInterval2 = 5000;
+const unsigned long interval = 250;
+const unsigned long eventInterval5 = 5000;
+unsigned long previousTime = 0;
+unsigned long previousTime1 = 0;
+unsigned long previousTime4 = 0;
+unsigned long previousTime5 = 0;
+unsigned long currentMillis;
+unsigned long seconds = 0;
+unsigned long minutes = 0;
+unsigned long hours = 0;
+unsigned long seconds2 = 0;
+unsigned long minutes2 = 0;
+unsigned long hours2 = 0;
+unsigned long detiktersimpan = 0;
+const uint32_t connectTimeoutMs = 5000;
+
+//**********Button that will be used on Arduino Pins****************//
+int P1 = 15;    // Button SET MENU    \\D6
+
+//*****************Declarating Wifi & Client***********************//
+
+const char* ssid1 = "Waskita Wifi";
+const char* pass1 = "";
+
+const char* ssid2 = "Waskita Wifi 2";
+const char* pass2 = "";
+
+const char* mqtt_server = "10.10.55.10";
+
+//***********************Setup Menu Mode***************************//
+enum Mode
+{
+  modeWaktuSemua,
+  modeWaktuSekarang,
+  modeDisplayDateTime,
+  jumlahMode,
+};
+
+//*************************Setup Wifi*****************************//
+void setup_wifi() {
+  WiFi.mode(WIFI_STA);
+  wifi_multi.addAP(ssid, pass);
+  wifi_multi.addAP(ssid1, pass1);
+  wifi_multi.addAP(ssid2, pass2);
+  Serial.print("Connecting to Wi-Fi...");
+  if (wifi_multi.run(connectTimeoutMs) != WL_CONNECTED)
+  {
+    Serial.print("................................................");
+  }else{
+  Serial.println();
+  Serial.print("Connected to ");
+  Serial.println(WiFi.SSID());
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  randomSeed(micros());
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+  }
+
+}
+
+//************************Setup Client****************************//
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+
+  // Switch on the LED if an 1 was received as first character
+  if ((char)payload[0] == '1') {
+    digitalWrite(BUILTIN_LED, LOW);   // Turn the LED on (Note that LOW is the voltage level
+    // but actually the LED is on; this is because
+    // it is active low on the ESP-01)
+  } else {
+    digitalWrite(BUILTIN_LED, HIGH);  // Turn the LED off by making the voltage HIGH
+  }
+
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  unsigned long mulai = millis();
+  unsigned long  jeda = 1000;
+  unsigned long beda = 0;
+  if (mulai - beda >= jeda) {
+    if (!client.connected()) {
+      Serial.print("Attempting MQTT connection...");
+      // Create a random client ID
+      String clientId = "ESP8266Client-";
+      clientId += String(random(0xffff), HEX);
+      // Attempt to connect
+      if (client.connect(clientId.c_str())) {
+        Serial.println("connected");
+      }
+    }
+    beda = jeda;
+  }
+}
+
+//**********************Shorting a Value**************************//
+void urutkanSampel(unsigned long *dataArray, byte jumlahData)
+{
+  byte i = 0;
+  for (byte i = 0; i < jumlahData; i++)
+  {
+    byte j;
+    for (byte j = 1; j < jumlahData; j++)
+    {
+      if (dataArray[j - 1] > dataArray[j])
+      {
+        unsigned long temp = dataArray[j - 1];
+        dataArray[j - 1] = dataArray[j];
+        dataArray[j] = temp;
+      }
+    }
+  }
+}
+
+//**********************Setting Jam**************************//
+void Panggil_jam() {
+  Jam1.close();
+  Jam2.close();
+  Jam3.close();
+  Jam4.close();
+  Jam5.close();
+  
+  Jam1 = SD.open("Jam1.txt");
+  if (Jam1.available()) {
+    nilai_jam1 = Jam1.parseInt();
+    Serial.print("Jam 1 : ");
+    Serial.println(nilai_jam1);
+  } else {
+    nilai_jam1 = 0;
+    Jam1.print(nilai_jam1);
+    nilai_jam1 = Jam1.parseInt();
+    Serial.print("Jam 1 : ");
+    Serial.println(nilai_jam1);
+  }
+  Jam1.close();
+  SD.remove("Jam1.txt");
+
+  Jam2 = SD.open("Jam2.txt");
+  if (Jam2.available()) {
+    nilai_jam2 = Jam2.parseInt();
+    Serial.print("Jam 2 : ");
+    Serial.println(nilai_jam2);
+  } else {
+    nilai_jam2 = 0;
+    Jam1.print(nilai_jam2);
+    nilai_jam2 = Jam1.parseInt();
+    Serial.print("Jam 2 : ");
+    Serial.println(nilai_jam2);
+  }
+  Jam2.close();
+  SD.remove("Jam2.txt");
+
+  Jam3 = SD.open("Jam3.txt");
+  if (Jam3.available()) {
+    nilai_jam3 = Jam3.parseInt();
+    Serial.print("Jam 3 : ");
+    Serial.println(nilai_jam3);
+  } else {
+    nilai_jam3 = 0;
+    Jam1.print(nilai_jam3);
+    nilai_jam3 = Jam3.parseInt();
+    Serial.print("Jam 3 : ");
+    Serial.println(nilai_jam3);
+  }
+  Jam3.close();
+  SD.remove("Jam3.txt");
+
+  Jam4 = SD.open("Jam4.txt");
+  if (Jam4.available()) {
+    nilai_jam4 = Jam4.parseInt();
+    Serial.print("Jam 4 : ");
+    Serial.println(nilai_jam4);
+  } else {
+    nilai_jam4 = 0;
+    Jam1.print(nilai_jam4);
+    nilai_jam4 = Jam4.parseInt();
+    Serial.print("Jam 4 : ");
+    Serial.println(nilai_jam4);
+  }
+  Jam4.close();
+  SD.remove("Jam4.txt");
+
+  Jam5 = SD.open("Jam5.txt");
+  if (Jam5.available()) {
+    nilai_jam5 = Jam5.parseInt();
+    Serial.print("Jam 5 : ");
+    Serial.println(nilai_jam5);
+  } else {
+    nilai_jam5 = 0;
+    Jam1.print(nilai_jam5);
+    nilai_jam5 = Jam1.parseInt();
+    Serial.print("Jam 5 : ");
+    Serial.println(nilai_jam5);
+  }
+  Jam5.close();
+  SD.remove("Jam5.txt");
+}
+
+//*********************Setting Menit*************************//
+void Panggil_menit() {
+  Menit1.close();
+  Menit2.close();
+  Menit3.close();
+  Menit4.close();
+  Menit5.close();
+
+  Menit1 = SD.open("Menit1.txt");
+  if (Menit1.available()) {
+    nilai_menit1 = Menit1.parseInt();
+    Serial.print("Menit 1 : ");
+    Serial.println(nilai_menit1);
+  } else {
+    nilai_menit1 = 0;
+    Menit1.print(nilai_menit1);
+    nilai_menit1 = Menit1.parseInt();
+    Serial.print("Menit 1 : ");
+    Serial.println(nilai_menit1);
+  }
+  Menit1.close();
+  SD.remove("Menit1.txt");
+
+  Menit2 = SD.open("Menit2.txt");
+  if (Menit2.available()) {
+    nilai_menit2 = Menit2.parseInt();
+    Serial.print("Menit 2 : ");
+    Serial.println(nilai_menit2);
+  } else {
+    nilai_menit2 = 0;
+    Menit1.print(nilai_menit2);
+    nilai_menit2 = Menit2.parseInt();
+    Serial.print("Menit 2 : ");
+    Serial.println(nilai_menit2);
+  }
+  Menit2.close();
+  SD.remove("Menit2.txt");
+
+  Menit3 = SD.open("Menit3.txt");
+  if (Menit3.available()) {
+    nilai_menit3 = Menit3.parseInt();
+    Serial.print("Menit 3 : ");
+    Serial.println(nilai_menit3);
+  } else {
+    nilai_menit3 = 0;
+    Menit3.print(nilai_menit3);
+    nilai_menit3 = Menit3.parseInt();
+    Serial.print("Menit 3 : ");
+    Serial.println(nilai_menit3);
+  }
+  Menit3.close();
+  SD.remove("Menit3.txt");
+
+  Menit4 = SD.open("Menit4.txt");
+  if (Menit4.available()) {
+    nilai_menit4 = Menit4.parseInt();
+    Serial.print("Menit 4 : ");
+    Serial.println(nilai_menit4);
+  } else {
+    nilai_menit4 = 0;
+    Menit1.print(nilai_menit4);
+    nilai_menit4 = Menit4.parseInt();
+    Serial.print("Menit 4 : ");
+    Serial.println(nilai_menit4);
+  }
+  Menit4.close();
+  SD.remove("Menit4.txt");
+
+  Menit5 = SD.open("Menit5.txt");
+  if (Menit5.available()) {
+    nilai_menit5 = Menit5.parseInt();
+    Serial.print("Menit 5 : ");
+    Serial.println(nilai_menit5);
+  } else {
+    nilai_menit5 = 0;
+    Menit5.print(nilai_menit5);
+    nilai_menit5 = Menit5.parseInt();
+    Serial.print("Menit 5 : ");
+    Serial.println(nilai_menit5);
+  }
+  Menit5.close();
+  SD.remove("Menit5.txt");
+}
+
+//*********************Setting Detik*************************//
+void Panggil_detik() {
+  Detik1.close();
+  Detik2.close();
+  Detik3.close();
+  Detik4.close();
+  
+  Detik1 = SD.open("Detik1.txt");
+  if (Detik1.available()) {
+    nilai_detik1 = Detik1.parseInt();
+    Serial.print("Detik 1 : ");
+    Serial.println(nilai_detik1);
+  } else {
+    nilai_menit1 = 0;
+    Detik1.print(nilai_detik1);
+    nilai_menit1 = Detik1.parseInt();
+    Serial.print("Detik 1 : ");
+    Serial.println(nilai_detik1);
+  }
+  Detik1.close();
+  SD.remove("Detik1.txt");
+
+  Detik2 = SD.open("Detik2.txt");
+  if (Detik2.available()) {
+    nilai_detik2 = Detik2.parseInt();
+    Serial.print("Detik 2 : ");
+    Serial.println(nilai_detik2);
+  } else {
+    nilai_menit2 = 0;
+    Detik1.print(nilai_detik2);
+    nilai_menit2 = Detik2.parseInt();
+    Serial.print("Detik 2 : ");
+    Serial.println(nilai_detik2);
+  }
+  Detik2.close();
+  SD.remove("Detik2.txt");
+
+  Detik3 = SD.open("Detik3.txt");
+  if (Detik3.available()) {
+    nilai_detik3 = Detik3.parseInt();
+    Serial.print("Detik 3 : ");
+    Serial.println(nilai_detik3);
+  } else {
+    nilai_menit3 = 0;
+    Detik3.print(nilai_detik3);
+    nilai_menit3 = Detik3.parseInt();
+    Serial.print("Detik 3 : ");
+    Serial.println(nilai_detik3);
+  }
+  Detik3.close();
+  SD.remove("Detik3.txt");
+
+  Detik4 = SD.open("Detik4.txt");
+  if (Detik4.available()) {
+    nilai_detik4 = Detik4.parseInt();
+    Serial.print("Detik 4 : ");
+    Serial.println(nilai_detik4);
+  } else {
+    nilai_menit4 = 0;
+    Detik4.print(nilai_detik4);
+    nilai_menit4 = Detik4.parseInt();
+    Serial.print("Detik 4 : ");
+    Serial.println(nilai_detik4);
+  }
+  Detik4.close();
+  SD.remove("Detik4.txt");
+}
+
+
+void setup() {
+  lcd.begin(16, 2);
+  Serial.begin(115200);
+  Wire.begin();
+  rtc.begin();
+  SD.begin(chipSelect);
+  pinMode(P1, INPUT);
+  setup_wifi();
+  client.setServer(mqtt_server, 1883);
+  pinMode(BUILTIN_LED, OUTPUT);
+  client.setCallback(callback);
+
+  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  if (! rtc.begin()) {
+    Serial.print("rtc is NOT running!");
+  }
+
+  if (!SD.begin(chipSelect)) {
+    //Serial.print("SDCARD GAGAL");
+    lcd.setCursor(0, 1);
+    lcd.print("SDCARD GAGAL");
+    status_SDCard = 0;
+    delay(1000);
+    lcd.setCursor(0, 0);
+    lcd.print("                ");
+    lcd.setCursor(0, 1);
+    lcd.print("                ");
+  } else {
+    lcd.setCursor(0, 0);
+    lcd.print("SDCARD BERHASIL");
+    Serial.println("Mencoba Read...");
+    status_SDCard = 1;
+    file2 = SD.open("Data LOG.txt");
+    file2.close();
+
+    Panggil_jam();
+    Panggil_menit();
+    Panggil_detik();
+
+    unsigned long Sampel1[] = {nilai_jam1, nilai_jam2, nilai_jam3, nilai_jam4, nilai_jam5};
+    unsigned long Sampel2[] = {nilai_menit1, nilai_menit2, nilai_menit3, nilai_menit4, nilai_menit5};
+    unsigned long Sampel3[] = {nilai_detik1, nilai_detik2, nilai_detik3, nilai_detik4, nilai_detik5};
+
+    byte jumlahSampel1 = sizeof(Sampel1) / sizeof(Sampel1[0]);
+    int jumlah1 = 0;
+    for (int i = 0; i < jumlahSampel1; i++)
+    {
+      jumlah1 += Sampel1[i];
+    }
+    urutkanSampel(Sampel1, jumlahSampel1);
+    median1 = Sampel1[(byte)(jumlahSampel1 / 2)];
+    if (!(jumlahSampel1 % 2))
+    {
+      median1 += Sampel1[(byte)(jumlahSampel1 / 2) - 1];
+      median1 /= 2;
+    }
+    Serial.print("Nilai Jam = ");
+    Serial.println(median1);
+
+
+    byte jumlahSampel2 = sizeof(Sampel2) / sizeof(Sampel2[0]);
+    int jumlah2 = 0;
+    for (int i = 0; i < jumlahSampel2; i++)
+    {
+      jumlah2 += Sampel2[i];
+    }
+    urutkanSampel(Sampel2, jumlahSampel2);
+    median2 = Sampel2[(byte)(jumlahSampel2 / 2)];
+    if (!(jumlahSampel2 % 2))
+    {
+      median2 += Sampel2[(byte)(jumlahSampel2 / 2) - 1];
+      median2 /= 2;
+    }
+    Serial.print("Nilai Menit = ");
+    Serial.println(median2);
+
+
+    byte jumlahSampel3 = sizeof(Sampel3) / sizeof(Sampel3[0]);
+    int jumlah3 = 0;
+    for (int i = 0; i < jumlahSampel3; i++)
+    {
+      jumlah3 += Sampel3[i];
+    }
+    urutkanSampel(Sampel3, jumlahSampel3);
+    median3 = Sampel3[(byte)(jumlahSampel3 / 2)];
+    if (!(jumlahSampel3 % 2))
+    {
+      median3 += Sampel3[(byte)(jumlahSampel3 / 2) - 1];
+      median3 /= 2;
+    }
+    Serial.print("Nilai Detik = ");
+    Serial.println(median3);
+    median = (median1 * 3600) + (median2 * 60) + median3;
+    lcd.setCursor(0, 0);
+    lcd.print("                ");
+    lcd.setCursor(0, 1);
+    lcd.print("                ");
+    //*********************Setting Detik*************************//
+  }
+}
+
+void loop() {
+  DateTime now = rtc.now();
+  unsigned long currentMillis1 = median +  (millis() / 1000);
+  seconds2 = currentMillis1;
+  minutes2 = seconds2 / 60;
+  hours2 = minutes2 / 60;
+  currentMillis1 %= 1000;
+  int(seconds2 %= 60);
+  int(minutes2 %= 60);
+  //int(hours2 %= 10000);
+  //hours %= 24;
+
+  currentMillis = millis();
+  seconds = currentMillis / 1000;
+  minutes = seconds / 60;
+  hours = minutes / 60;
+
+  currentMillis %= 1000;
+  seconds %= 60;
+  minutes %= 60;
+  //hours %= 24;
+
+  if (!client.connected()) {
+    reconnect();
+  }
+
+  snprintf (msg, MSG_BUFFER_SIZE, "%ld:%ld:%ld", hours2, minutes2, seconds2);
+  Serial.print("Publish message: ");
+  Serial.println(msg);
+  client.publish("event", msg);
+
+  snprintf (msg, MSG_BUFFER_SIZE, "%ld:%ld:%ld", hours, minutes, seconds);
+  client.publish("event1", msg);
+
+  snprintf (msg, MSG_BUFFER_SIZE, "%ld", seconds);
+  client.publish("event2", msg);
+
+  snprintf (msg, MSG_BUFFER_SIZE, "%ld/%ld/%ld", now.day(), now.month(), now.year());
+  client.publish("event3", msg);
+
+  if (seconds % 60 == 0) {
+    Peringatan();
+    if (status_SDCard == 0) {
+      snprintf (msg, MSG_BUFFER_SIZE, "SD Card Gagal Terbaca");
+      client.publish("event4/SD_Card", msg);
+    } else {
+      snprintf (msg, MSG_BUFFER_SIZE, "SD Card Berhasil Terbaca");
+      client.publish("event4/SD_Card", msg);
+    }
+  }
+
+  switch (hitung) {
+
+    case modeWaktuSemua:
+      WaktuSemua();
+      break;
+
+    case modeWaktuSekarang:
+      WaktuSekarang();
+      break;
+
+    case modeDisplayDateTime:
+      DisplayDateTime();
+      break;
+  }
+
+  if (digitalRead(P1))
+  {
+    delay(100);
+    if (digitalRead(P1))
+    {
+      hitung++;
+      hitung %= jumlahMode;
+      lcd.setCursor(0, 0);
+      lcd.print("                ");
+      lcd.setCursor(0, 1);
+      lcd.print("                ");
+      while (digitalRead(P1));
+    }
+  }
+
+  ///////////////////////////////////////////////////////////////////
+  if (seconds % 1 == 0) {
+    SD.remove("Detik1.txt");
+    Detik1 = SD.open("Detik1.txt", FILE_WRITE);
+    if (Detik1) {
+      Detik1.print(seconds2);
+      //Serial.printf("Detik Tersimpan : %d", seconds2);
+    }
+    Detik1.close();
+
+    SD.remove("Menit1.txt");
+    Menit1 = SD.open("Menit1.txt", FILE_WRITE);
+    if (Menit1) {
+      Menit1.print(minutes2);
+      //Serial.printf("Menit Tersimpan : %d", minutes2);
+    }
+    Menit1.close();
+
+    SD.remove("Jam1.txt");
+    Jam1 = SD.open("Jam1.txt", FILE_WRITE);
+    if (Jam1) {
+      Jam1.print(hours2);
+      //Serial.printf("Jam Tersimpan : %d", hours2);
+    }
+    Jam1.close();
+
+    SD.remove("Detik2.txt");
+    Detik2 = SD.open("Detik2.txt", FILE_WRITE);
+    if (Detik2) {
+      Detik2.print(seconds2);
+      //Serial.printf("Detik Tersimpan : %d", seconds2);
+    }
+    Detik2.close();
+
+    SD.remove("Menit2.txt");
+    Menit2 = SD.open("Menit2.txt", FILE_WRITE);
+    if (Menit2) {
+      Menit2.print(minutes2);
+      //Serial.printf("Menit Tersimpan : %d", minutes2);
+    }
+    Menit2.close();
+
+    SD.remove("Jam2.txt");
+    Jam2 = SD.open("Jam2.txt", FILE_WRITE);
+    if (Jam2) {
+      Jam2.print(hours2);
+      //Serial.printf("Jam Tersimpan : %d", hours2);
+    }
+    Jam2.close();
+
+    SD.remove("Detik3.txt");
+    Detik3 = SD.open("Detik3.txt", FILE_WRITE);
+    if (Detik3) {
+      Detik3.print(seconds2);
+      //Serial.printf("Detik Tersimpan : %d", seconds2);
+    }
+    Detik3.close();
+
+    SD.remove("Menit3.txt");
+    Menit3 = SD.open("Menit3.txt", FILE_WRITE);
+    if (Menit3) {
+      Menit3.print(minutes2);
+      //Serial.printf("Menit Tersimpan : %d", minutes2);
+    }
+    Menit3.close();
+
+    SD.remove("Jam3.txt");
+    Jam3 = SD.open("Jam3.txt", FILE_WRITE);
+    if (Jam3) {
+      Jam3.print(hours2);
+      //Serial.printf("Jam Tersimpan : %d", hours2);
+    }
+    Jam3.close();
+
+    SD.remove("Detik4.txt");
+    Detik4 = SD.open("Detik4.txt", FILE_WRITE);
+    if (Detik4) {
+      Detik4.print(seconds2);
+      //Serial.printf("Detik Tersimpan : %d", seconds2);
+    }
+    Detik4.close();
+
+    SD.remove("Menit4.txt");
+    Menit4 = SD.open("Menit4.txt", FILE_WRITE);
+    if (Menit4) {
+      Menit4.print(minutes2);
+      //Serial.printf("Menit Tersimpan : %d", minutes2);
+    }
+    Menit4.close();
+
+    SD.remove("Jam4.txt");
+    Jam4 = SD.open("Jam4.txt", FILE_WRITE);
+    if (Jam4) {
+      Jam4.print(hours2);
+      //Serial.printf("Jam Tersimpan : %d", hours2);
+    }
+    Jam4.close();
+
+    SD.remove("Menit5.txt");
+    Menit5 = SD.open("Menit5.txt", FILE_WRITE);
+    if (Menit5) {
+      Menit5.print(minutes2);
+      //Serial.printf("Menit Tersimpan : %d", minutes2);
+    }
+    Menit5.close();
+
+    SD.remove("Jam5.txt");
+    Jam5 = SD.open("Jam5.txt", FILE_WRITE);
+    if (Jam5) {
+      Jam5.print(hours2);
+      //Serial.printf("Jam Tersimpan : %d", hours2);
+    }
+    Jam5.close();
+  }
+}
+
+void Peringatan() {
+  unsigned long delay1 = millis();
+
+  if (hours2 % interval == 0) {
+    if (!hours2 == 0) {
+      peringatan = SD.open("Warning.txt", FILE_WRITE);
+      if (peringatan) {
+        peringatan.print("1");
+        Serial.println("Waktunya Maintenance");
+        peringatan.close();
+      }
+    }
+  }
+
+
+
+  if (client.connected()) {
+    peringatan = SD.open("Warning.txt");
+    if (peringatan) {
+      snprintf (msg, MSG_BUFFER_SIZE, "Waktunya Maintenance");
+      client.publish("event1/peringatan", msg);
+      peringatan.close();
+      if (delay1 -  previousTime5 == eventInterval5) {
+        SD.remove("Warning.txt");
+        previousTime5 = delay1;
+      }
+    } else {
+      snprintf (msg, MSG_BUFFER_SIZE, "Belum Waktunya Maintenance");
+      client.publish("event1/peringatan", msg);
+      peringatan.close();
+      SD.remove("Warning.txt");
+    }
+  }
+}
+
+void DisplayDateTime ()
+{
+  // We show the current date and time
+  DateTime now = rtc.now();
+  lcd.setCursor(0, 1);
+  lcd.print("Hour: ");
+  if (now.hour() <= 9)
+  {
+    lcd.print("0");
+  }
+  lcd.print(now.hour(), DEC);
+  lcd.print(":");
+  if (now.minute() <= 9)
+  {
+    lcd.print("0");
+  }
+  lcd.print(now.minute(), DEC);
+  lcd.print(":");
+
+  if (now.second() <= 9)
+  {
+    lcd.print("0");
+  }
+  lcd.print(now.second(), DEC);
+
+  lcd.setCursor(0, 0);
+  lcd.print("Date: ");
+  if (now.day() <= 9)
+  {
+    lcd.print("0");
+  }
+  lcd.print(now.day(), DEC);
+  lcd.print("/");
+
+  if (now.month() <= 9)
+  {
+    lcd.print("0");
+  }
+  lcd.print(now.month(), DEC);
+  lcd.print("/");
+  lcd.print(now.year(), DEC);
+}
+
+void WaktuSekarang() {
+  unsigned long  jeda1 = 60000;
+  lcd.setCursor(0, 0);
+  lcd.print("Lama Berjalan");
+  lcd.setCursor(0, 1);
+  lcd.printf("=> %ld:%ld:%ld", hours, minutes, seconds);
+  Serial.printf("||        %ld:%ld:%ld         ||", hours, minutes, seconds);
+  if (seconds % jeda1 == 0) {
+    lcd.setCursor(0, 1);
+    lcd.print("                ");
+  }
+}
+
+void WaktuSemua() {
+  unsigned long  jeda2 = 60000;
+  lcd.setCursor(0, 0);
+  lcd.print("Total Waktu");
+  lcd.setCursor(0, 1);
+  lcd.printf("=> %ld:%ld:%ld", hours2, minutes2, seconds2);
+  Serial.printf("||        %ld:%ld:%ld        ||", hours2, minutes2, seconds2);
+  if (seconds2 % jeda2 == 0) {
+    lcd.setCursor(0, 1);
+    lcd.print("                ");
+  }
+}
